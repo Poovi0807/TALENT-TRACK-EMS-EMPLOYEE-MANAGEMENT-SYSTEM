@@ -1,6 +1,7 @@
 const Employee = require('../models/Employee');
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
+const { handleError } = require('../utils/security');
 
 exports.getStats = async (req, res) => {
   try {
@@ -23,6 +24,6 @@ exports.getStats = async (req, res) => {
       departmentStats,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    handleError(res, error, 'getStats');
   }
 };

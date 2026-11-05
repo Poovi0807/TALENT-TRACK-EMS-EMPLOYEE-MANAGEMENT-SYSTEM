@@ -1,23 +1,31 @@
-version: '3.8'
+# Security fixes (F-02, F-11): no secrets in this file, database protected by a password
+# and not published to the host network. All values come from the .env file next to this file
+# (copy .env.example to .env and fill it in). Docker Compose stops with an error if one is missing.
 services:
   mongodb:
     image: mongo:7
     container_name: talenttrack-mongo
-    ports:
-      - "27017:27017"
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+    # No "ports:" section: MongoDB is reachable only by the backend container, not from outside.
     volumes:
       - mongo_data:/data/db
 
   backend:
     build: .
     container_name: talenttrack-backend
+    restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"   # only reachable from this computer
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/talenttrack
-      - JWT_SECRET=talenttrack_super_secret_jwt_key_2024
-      - JWT_EXPIRES_IN=7d
-      - NODE_ENV=production
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongodb:27017/talenttrack?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      NODE_ENV: ${NODE_ENV:-production}
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
     depends_on:
       - mongodb
 

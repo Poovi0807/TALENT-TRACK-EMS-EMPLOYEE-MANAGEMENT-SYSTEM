@@ -4,6 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 
 const LeaveManagement = () => {
   const { user } = useAuth();
+  // Employees apply for and see only their own leave; admins/managers manage everyone's
+  const isStaffUser = user?.role === 'admin' || user?.role === 'manager';
+  const isOwnLeave = (leave) => user?.employeeId && String(leave.employee?._id) === String(user.employeeId);
   const [leaves, setLeaves] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,8 +35,8 @@ const LeaveManagement = () => {
 
   useEffect(() => {
     fetchLeaves();
-    getEmployees().then(res => setEmployees(res.data)).catch(console.error);
-  }, [filterStatus]);
+    if (isStaffUser) getEmployees().then(res => setEmployees(res.data)).catch(console.error);
+  }, [filterStatus, isStaffUser]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -65,7 +68,7 @@ const LeaveManagement = () => {
       showMsg('success', 'Leave cancelled.');
       fetchLeaves();
     } catch (err) {
-      showMsg('error', 'Failed to cancel leave');
+      showMsg('error', err.response?.data?.message || 'Failed to cancel leave');
     }
   };
 
@@ -99,6 +102,7 @@ const LeaveManagement = () => {
           <h3 className="form-section-title">New Leave Application</h3>
           <form onSubmit={handleSubmit}>
             <div className="form-grid">
+              {isStaffUser && (
               <div className="form-group">
                 <label>Employee *</label>
                 <select value={form.employee} onChange={e => setForm({ ...form, employee: e.target.value })} required>
@@ -108,6 +112,7 @@ const LeaveManagement = () => {
                   ))}
                 </select>
               </div>
+              )}
               <div className="form-group">
                 <label>Leave Type *</label>
                 <select value={form.leaveType} onChange={e => setForm({ ...form, leaveType: e.target.value })}>
@@ -196,7 +201,7 @@ const LeaveManagement = () => {
                   <td><span className={`status-badge status-${statusColors[leave.status]}`}>{leave.status}</span></td>
                   <td>
                     <div className="action-btns">
-                      {leave.status === 'pending' && (user?.role === 'admin' || user?.role === 'manager') && (
+                      {leave.status === 'pending' && isStaffUser && !isOwnLeave(leave) && (
                         <>
                           <button className="btn-sm btn-sm--green" onClick={() => handleStatus(leave._id, 'approved')}>✓ Approve</button>
                           <button className="btn-sm btn-sm--red" onClick={() => {
@@ -205,7 +210,7 @@ const LeaveManagement = () => {
                           }}>✗ Reject</button>
                         </>
                       )}
-                      {leave.status === 'pending' && (
+                      {leave.status === 'pending' && (isStaffUser || isOwnLeave(leave)) && (
                         <button className="btn-sm btn-sm--gray" onClick={() => handleCancel(leave._id)}>Cancel</button>
                       )}
                     </div>

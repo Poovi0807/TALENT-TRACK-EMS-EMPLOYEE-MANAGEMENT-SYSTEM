@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 
 const Attendance = () => {
   const { user } = useAuth();
+  // Employees can only see and record their own attendance; admins/managers can choose anyone
+  const isStaffUser = user?.role === 'admin' || user?.role === 'manager';
   const [employees, setEmployees] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -13,8 +15,12 @@ const Attendance = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
-    getEmployees().then(res => setEmployees(res.data)).catch(console.error);
-  }, []);
+    if (isStaffUser) {
+      getEmployees().then(res => setEmployees(res.data)).catch(console.error);
+    } else if (user?.employeeId) {
+      setSelectedEmployee(user.employeeId);
+    }
+  }, [isStaffUser, user?.employeeId]);
 
   useEffect(() => {
     if (selectedEmployee) {
@@ -32,7 +38,7 @@ const Attendance = () => {
   };
 
   const handleCheckIn = async () => {
-    if (!selectedEmployee) return showMsg('error', 'Please select an employee first');
+    if (!selectedEmployee) return showMsg('error', isStaffUser ? 'Please select an employee first' : 'Your account is not linked to an employee record');
     try {
       await checkIn(selectedEmployee);
       showMsg('success', 'Check-in recorded successfully!');
@@ -43,7 +49,7 @@ const Attendance = () => {
   };
 
   const handleCheckOut = async () => {
-    if (!selectedEmployee) return showMsg('error', 'Please select an employee first');
+    if (!selectedEmployee) return showMsg('error', isStaffUser ? 'Please select an employee first' : 'Your account is not linked to an employee record');
     try {
       await checkOut(selectedEmployee);
       showMsg('success', 'Check-out recorded successfully!');
@@ -74,6 +80,7 @@ const Attendance = () => {
 
       <div className="attendance-controls card">
         <div className="control-row">
+          {isStaffUser && (
           <div className="form-group">
             <label>Select Employee</label>
             <select value={selectedEmployee} onChange={e => setSelectedEmployee(e.target.value)}>
@@ -85,6 +92,7 @@ const Attendance = () => {
               ))}
             </select>
           </div>
+          )}
           <div className="form-group">
             <label>Month</label>
             <select value={month} onChange={e => setMonth(Number(e.target.value))}>
@@ -162,7 +170,9 @@ const Attendance = () => {
 
       {!selectedEmployee && (
         <div className="empty-card">
-          <p>👆 Select an employee above to view their attendance records.</p>
+          <p>{isStaffUser
+            ? '👆 Select an employee above to view their attendance records.'
+            : 'Your account is not linked to an employee record yet. Please ask an administrator.'}</p>
         </div>
       )}
     </div>

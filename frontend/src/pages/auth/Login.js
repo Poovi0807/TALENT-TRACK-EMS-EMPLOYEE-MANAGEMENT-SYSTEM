@@ -29,16 +29,6 @@ const Login = () => {
     }
   };
 
-  const fillDemo = (role) => {
-    const creds = {
-      admin:    { email: 'admin@talenttrack.com',    password: 'password123' },
-      manager:  { email: 'manager@talenttrack.com',  password: 'password123' },
-      employee: { email: 'employee@talenttrack.com', password: 'password123' },
-    };
-    setForm(creds[role]);
-    setError('');
-  };
-
   return (
     <div className="login-page">
       <div className="login-container">
@@ -92,15 +82,6 @@ const Login = () => {
             ) : 'Sign In'}
           </button>
         </form>
-
-        <div className="demo-accounts">
-          <p className="demo-title">Quick Demo Login:</p>
-          <div className="demo-buttons">
-            <button className="btn btn-demo" onClick={() => fillDemo('admin')}>Admin</button>
-            <button className="btn btn-demo" onClick={() => fillDemo('manager')}>Manager</button>
-            <button className="btn btn-demo" onClick={() => fillDemo('employee')}>Employee</button>
-          </div>
-        </div>
 
         <div className="auth-switch">
           Don't have an account?{' '}

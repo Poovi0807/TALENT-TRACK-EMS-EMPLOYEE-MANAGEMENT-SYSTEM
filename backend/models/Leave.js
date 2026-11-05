@@ -6,11 +6,12 @@ const leaveSchema = new mongoose.Schema({
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
   totalDays: { type: Number },
-  reason: { type: String, required: true },
+  reason: { type: String, required: true, trim: true, maxlength: 500 },
   status: { type: String, enum: ['pending', 'approved', 'rejected', 'cancelled'], default: 'pending' },
   approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
+  reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // user account that approved/rejected
   approvedAt: { type: Date },
-  rejectionReason: { type: String },
+  rejectionReason: { type: String, trim: true, maxlength: 300 },
 }, { timestamps: true });
 
 leaveSchema.pre('save', function(next) {

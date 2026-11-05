@@ -12,7 +12,6 @@ const Register = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'employee',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -26,7 +25,9 @@ const Register = () => {
     if (!form.name.trim()) return 'Full name is required.';
     if (!form.email.trim()) return 'Email is required.';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return 'Enter a valid email address.';
-    if (form.password.length < 6) return 'Password must be at least 6 characters.';
+    if (form.password.length < 8 || !/[A-Za-z]/.test(form.password) || !/[0-9]/.test(form.password)) {
+      return 'Password must be at least 8 characters and include a letter and a number.';
+    }
     if (form.password !== form.confirmPassword) return 'Passwords do not match.';
     return null;
   };
@@ -39,7 +40,7 @@ const Register = () => {
     setLoading(true);
     setError('');
     try {
-      await register({ name: form.name, email: form.email, password: form.password, role: form.role });
+      await register({ name: form.name, email: form.email, password: form.password });
       setSuccess('Account created successfully! Redirecting to login...');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
@@ -52,8 +53,7 @@ const Register = () => {
   const getPasswordStrength = () => {
     const p = form.password;
     if (!p) return null;
-    if (p.length < 6) return { label: 'Too short', color: '#ef4444', width: '20%' };
-    if (p.length < 8) return { label: 'Weak', color: '#f59e0b', width: '40%' };
+    if (p.length < 8) return { label: 'Too short', color: '#ef4444', width: '20%' };
     if (!/[A-Z]/.test(p) || !/[0-9]/.test(p)) return { label: 'Fair', color: '#f59e0b', width: '60%' };
     if (!/[^A-Za-z0-9]/.test(p)) return { label: 'Good', color: '#10b981', width: '80%' };
     return { label: 'Strong', color: '#10b981', width: '100%' };
@@ -109,19 +109,6 @@ const Register = () => {
             </div>
           </div>
 
-          {/* Role */}
-          <div className="form-group">
-            <label>Role <span className="required">*</span></label>
-            <div className="input-wrap">
-              <span className="input-icon">🎭</span>
-              <select name="role" value={form.role} onChange={handleChange} className="select-with-icon">
-                <option value="employee">Employee</option>
-                <option value="manager">Manager</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-          </div>
-
           {/* Password */}
           <div className="form-group">
             <label>Password <span className="required">*</span></label>
@@ -132,7 +119,7 @@ const Register = () => {
                 name="password"
                 value={form.password}
                 onChange={handleChange}
-                placeholder="Minimum 6 characters"
+                placeholder="At least 8 characters, a letter and a number"
                 required
                 autoComplete="new-password"
               />

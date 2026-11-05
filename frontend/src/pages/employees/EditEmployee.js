@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getEmployee, updateEmployee } from '../../services/api';
 
 const DEPARTMENTS = ['Engineering', 'HR', 'Finance', 'Marketing', 'Operations', 'Sales', 'IT'];
 
 const EditEmployee = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const { id } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -123,10 +126,12 @@ const EditEmployee = () => {
                 <label>Date of Joining *</label>
                 <input type="date" name="dateOfJoining" value={form.dateOfJoining} onChange={handleChange} required />
               </div>
-              <div className="form-group">
-                <label>Salary (USD)</label>
-                <input type="number" name="salary" value={form.salary} onChange={handleChange} />
-              </div>
+              {isAdmin && (
+                <div className="form-group">
+                  <label>Salary (USD)</label>
+                  <input type="number" name="salary" value={form.salary} onChange={handleChange} />
+                </div>
+              )}
               <div className="form-group">
                 <label>Status</label>
                 <select name="status" value={form.status} onChange={handleChange}>
