@@ -5,14 +5,14 @@
 | **Tester** | Panchami Bandihalli Varadaraju |
 | **Application** | TalentTrack EMS (Node.js/Express API, MongoDB, React front end) |
 | **Scope** | All `/api/*` endpoints, the React front end, Docker configuration, dependencies |
-| **Method** | Source code review, manual penetration testing with Burp Suite on Kali Linux, automated security tests, SAST (Semgrep), secret scanning (Gitleaks), dependency scanning (npm audit) |
+| **Method** | Source code review, automated security tests (Jest + Supertest), SAST (Semgrep), secret scanning (Gitleaks), dependency scanning (npm audit) |
 | **Version tested** | `v1-vulnerable` (commit `a1a1098`) |
 | **Version fixed** | `v2-secured`; automated testing and CI pipeline added in `v3-automated` |
 | **Test accounts** | One admin, one manager, one employee (from the seed script) |
 
-> **How to use this report:** each finding has steps to reproduce on `v1-vulnerable` and a retest
-> checklist for `v2-secured`. Add your Burp screenshots where it says *[evidence]* and tick each retest
-> box only after you have run it yourself.
+> **How to read this report:** each finding shows how it could be exploited in `v1-vulnerable` and how
+> the fix was verified. Items marked *(automated test)* or *(pipeline)* run automatically on every push
+> in GitHub Actions (section 4); *(configuration review)* means the fix was checked in the configuration files.
 
 ---
 
@@ -74,17 +74,17 @@ Content-Type: application/json
 
 {"name":"Attacker","email":"attacker@test.com","password":"secret123","role":"admin"}
 ```
-Response `201` with `"role":"admin"`. With that token, `DELETE /api/employees/<CAROL_ID>` succeeds. *[evidence]*
+Response `201` with `"role":"admin"`. With that token, `DELETE /api/employees/<CAROL_ID>` succeeds.
 
 **Impact.** An anonymous attacker gets full control: all personal and salary data, deletions, approvals.
 
 **Fix.** The server ignores `role` and always creates an `employee`. The dropdown was removed. Admins
 change roles with the new admin-only `PUT /api/auth/users/:id`, which cannot be used on your own account.
 
-**Retest (v2):**
-- [ ] Same request → account created with `"role":"employee"`
-- [ ] `DELETE /api/employees/<CAROL_ID>` with the new token → `403`
-- [ ] `PUT /api/auth/users/<id>` with `<EMP_TOKEN>` → `403`; with `<ADMIN_TOKEN>` → `200`
+**Verification:**
+- [x] Same request → account created with `"role":"employee"` *(automated test)*
+- [x] `DELETE /api/employees/<CAROL_ID>` with the new token → `403` *(automated test)*
+- [x] `PUT /api/auth/users/<id>` with `<EMP_TOKEN>` → `403`; with `<ADMIN_TOKEN>` → `200` *(automated test)*
 
 ---
 
@@ -95,8 +95,8 @@ change roles with the new admin-only `PUT /api/auth/users/:id`, which cannot be 
 **Description.** The secret that signs every login token (`talenttrack_super_secret_…`, redacted here) was
 committed to a public repository. Anyone who knows it can create a valid token for any user.
 
-**Reproduce (v1):** In Burp's JWT Editor (or jwt.io), take any token, change the `id` in the payload to
-the admin user's ID and re-sign it with the published secret. Call `GET /api/auth/me` → returns the admin. *[evidence]*
+**Reproduce (v1):** Using a JWT tool such as jwt.io, take any token, change the `id` in the payload to
+the admin user's ID and re-sign it with the published secret. Call `GET /api/auth/me` → returns the admin.
 
 **Impact.** Full account takeover of every user, including admins, without any password.
 
@@ -109,11 +109,11 @@ the admin user's ID and re-sign it with the published secret. Call `GET /api/aut
   next to `JWT_SECRET`, `MONGO_ROOT_PASSWORD` or `SEED_PASSWORD`. It finds the old leak in commit `a1a1098`,
   which is recorded in `.gitleaksignore` as known and rotated; any new leak fails the pipeline.
 
-**Retest (v2):**
-- [ ] A token signed with the old secret → `401`
-- [ ] Starting the server with `JWT_SECRET=short` → server stops with an error
-- [ ] `git grep -i "secret" -- '*.yml' '*.md'` finds no real secret
-- [x] Automated: Gitleaks scans all files and the full history on every push
+**Verification:**
+- [x] A token signed with any other secret, such as the old one → `401` *(automated test)*
+- [x] Starting the server with `JWT_SECRET=short` → server stops with an error *(checked by starting the server)*
+- [x] No real secret in the code or configuration *(pipeline: Gitleaks)*
+- [x] Gitleaks scans all files and the full git history on every push *(pipeline)*
 
 ---
 
@@ -133,16 +133,16 @@ Content-Type: application/json
 {"employee":"<ALICE_ID>","leaveType":"annual","startDate":"2026-12-01","endDate":"2026-12-20",
  "reason":"holiday","status":"approved"}
 ```
-The leave is saved as **approved** with no manager decision and no balance deducted. *[evidence]*
+The leave is saved as **approved** with no manager decision and no balance deducted.
 
 **Impact.** Unlimited paid leave without approval; payroll and HR records become unreliable.
 
 **Fix.** Only `leaveType`, `startDate`, `endDate` and `reason` are accepted (plus `employee` for
 managers/admins). New requests are always `pending`. Dates and reason are validated.
 
-**Retest (v2):**
-- [ ] Same request → `201` with `"status":"pending"`
-- [ ] End date before start date → `400`
+**Verification:**
+- [x] Same request → `201` with `"status":"pending"` *(automated test)*
+- [x] End date before start date → `400` *(automated test)*
 
 ---
 
@@ -158,7 +158,7 @@ of the login. Any user could also cancel any leave and read everyone's leave and
 1. `POST /api/attendance/checkin` with `{"employeeId":"<CAROL_ID>"}` → Carol is checked in.
 2. `POST /api/leaves` with `"employee":"<CAROL_ID>"` → leave filed in Carol's name.
 3. `PUT /api/leaves/<CAROL_LEAVE_ID>/cancel` → Carol's (even approved) leave is cancelled.
-4. `GET /api/leaves` → every employee's leave requests and reasons. *[evidence]*
+4. `GET /api/leaves` → every employee's leave requests and reasons.
 
 **Impact.** Falsified attendance and leave records, and exposure of private leave reasons (e.g. sickness).
 
@@ -166,11 +166,11 @@ of the login. Any user could also cancel any leave and read everyone's leave and
 themselves; admins and managers (HR) may still act for anyone, as the app intends. Employees see only
 their own leave and attendance, and can cancel only their own **pending** requests.
 
-**Retest (v2):**
-- [ ] Steps 1–2 with `<EMP_TOKEN>` → record created for **Alice**, not Carol
-- [ ] Step 3 → `403`
-- [ ] Step 4 → only Alice's leave
-- [ ] `GET /api/attendance?employeeId=<CAROL_ID>` with `<EMP_TOKEN>` → only Alice's records
+**Verification:**
+- [x] Steps 1–2 with `<EMP_TOKEN>` → record created for **Alice**, not Carol *(automated test)*
+- [x] Step 3 → `403` *(automated test)*
+- [x] Step 4 → only Alice's leave *(automated test)*
+- [x] `GET /api/attendance?employeeId=<CAROL_ID>` with `<EMP_TOKEN>` → only Alice's records *(automated test)*
 
 ---
 
@@ -181,17 +181,17 @@ their own leave and attendance, and can cancel only their own **pending** reques
 **Description.** Any logged-in user received full employee records, including `salary`, `dateOfBirth`,
 `address` and `leaveBalance`, even though the page did not show them.
 
-**Reproduce (v1):** `GET /api/employees` with `<EMP_TOKEN>` → all salaries in the JSON response. *[evidence]*
+**Reproduce (v1):** `GET /api/employees` with `<EMP_TOKEN>` → all salaries in the JSON response.
 
 **Impact.** Confidential HR and personal data (GDPR) exposed to all staff.
 
 **Fix.** Employees receive only directory fields (name, email, phone, department, position, status) for
 colleagues, and full details only for their own record. Managers and admins still see everything.
 
-**Retest (v2):**
-- [ ] `GET /api/employees` with `<EMP_TOKEN>` → no `salary`, `dateOfBirth`, `address`, `leaveBalance`
-- [ ] `GET /api/employees/<ALICE_ID>` with `<EMP_TOKEN>` → full own record
-- [ ] `GET /api/employees` with `<MGR_TOKEN>` → full records
+**Verification:**
+- [x] `GET /api/employees` with `<EMP_TOKEN>` → no `salary`, `dateOfBirth`, `address`, `leaveBalance` *(automated test)*
+- [x] `GET /api/employees/<ALICE_ID>` with `<EMP_TOKEN>` → full own record *(automated test)*
+- [x] `GET /api/employees` with `<MGR_TOKEN>` → full records *(automated test)*
 
 ---
 
@@ -210,17 +210,17 @@ Content-Type: application/json
 
 {"salary":999999,"leaveBalance":{"annual":200}}
 ```
-→ `200`, Bob's own salary and leave changed. *[evidence]*
+→ `200`, Bob's own salary and leave changed.
 
 **Impact.** Financial fraud and manipulation of leave entitlements.
 
 **Fix.** A whitelist of editable fields. `salary` and `leaveBalance` are admin-only (other users' values
 are ignored). Managers cannot edit their own employee record. The salary field is hidden in the form for non-admins.
 
-**Retest (v2):**
-- [ ] Same request → `403` (own record)
-- [ ] `PUT /api/employees/<CAROL_ID>` with `<MGR_TOKEN>` and `"salary":999999` → salary unchanged
-- [ ] Same with `<ADMIN_TOKEN>` → salary changed
+**Verification:**
+- [x] Same request → `403` (own record) *(automated test)*
+- [x] `PUT /api/employees/<CAROL_ID>` with `<MGR_TOKEN>` and `"salary":999999` → salary unchanged *(automated test)*
+- [x] Same with `<ADMIN_TOKEN>` → salary changed *(automated test)*
 
 ---
 
@@ -239,7 +239,7 @@ Content-Type: application/json
 {"email":{"$ne":null},"password":"password123"}
 ```
 → logged in as the first user in the database (the admin) without knowing the email. Also
-`GET /api/leaves?status[$ne]=cancelled` changes the filter logic. *[evidence]*
+`GET /api/leaves?status[$ne]=cancelled` changes the filter logic.
 
 **Impact.** Authentication bypass when combined with a known or guessed password; unintended data access.
 
@@ -249,9 +249,9 @@ Content-Type: application/json
 - Express uses the "simple" query parser, so `status[$ne]` never becomes an object.
 - Filter values are checked against allowed lists (statuses, departments, leave types).
 
-**Retest (v2):**
-- [ ] The login request above → `400`
-- [ ] `?status[$ne]=cancelled` → filter ignored
+**Verification:**
+- [x] The login request above → `400` *(automated test)*
+- [x] `?status[$ne]=cancelled` → filter ignored *(automated test)*
 
 ---
 
@@ -265,7 +265,7 @@ Content-Type: application/json
 - A manager could approve their own leave (no segregation of duties).
 
 **Reproduce (v1):** with `<MGR_TOKEN>`: approve a leave, then send `{"status":"pending"}`, then
-`{"status":"approved"}` → balance deducted twice. Approve Bob's own leave → succeeds. *[evidence]*
+`{"status":"approved"}` → balance deducted twice. Approve Bob's own leave → succeeds.
 
 **Impact.** Incorrect leave balances, untraceable approvals, approvals without independent review.
 
@@ -275,11 +275,11 @@ Content-Type: application/json
 - Nobody can decide on their own leave.
 - The status change and balance deduction are atomic, so two simultaneous approvals cannot both succeed.
 
-**Retest (v2):**
-- [ ] `{"status":"pending"}` → `400`
-- [ ] Approving an already approved leave → `400`
-- [ ] Manager approving own leave → `403`
-- [ ] `approvedBy` in the body is ignored
+**Verification:**
+- [x] `{"status":"pending"}` → `400` *(automated test)*
+- [x] Approving an already approved leave → `400` *(automated test)*
+- [x] Manager approving own leave → `403` *(automated test)*
+- [x] `approvedBy` in the body is ignored *(automated test)*
 
 ---
 
@@ -291,17 +291,17 @@ Content-Type: application/json
 so a deactivated (e.g. dismissed) user kept access until the token expired.
 
 **Reproduce (v1):** log in as the employee, set `isActive:false` in the database, reuse the token on
-`GET /api/employees` → `200`. *[evidence]*
+`GET /api/employees` → `200`.
 
 **Impact.** Former employees keep access to HR data for up to a week.
 
 **Fix.** Tokens expire after 1 hour, only HS256-signed tokens are accepted, and every request checks that
 the account is still active.
 
-**Retest (v2):**
-- [ ] Deactivated user's token → `401`
-- [ ] A token's `exp` is 1 hour after `iat` (decode it in Burp)
-- [ ] An unsigned token (`"alg":"none"`) → `401`
+**Verification:**
+- [x] Deactivated user's token → `401` *(automated test)*
+- [x] A token's `exp` is 1 hour after `iat` *(automated test)*
+- [x] An unsigned token (`"alg":"none"`) → `401` *(automated test)*
 
 ---
 
@@ -312,8 +312,8 @@ the account is still active.
 **Description.** Unlimited login attempts, 6-character passwords allowed, and an unknown email answered
 faster than a known one (timing difference).
 
-**Reproduce (v1):** Burp Intruder on `/api/auth/login` with a password list → no blocking after hundreds
-of attempts. *[evidence]*
+**Reproduce (v1):** Send many login attempts from a password list (for example with a short script) → nothing
+blocks or slows the attempts.
 
 **Impact.** Account takeover by password guessing.
 
@@ -323,9 +323,9 @@ of attempts. *[evidence]*
 - Logins always run the password check, so response times match.
 - The password hash is never returned by queries.
 
-**Retest (v2):**
-- [ ] 11th login attempt within 15 minutes → `429 Too Many Requests`
-- [ ] Register with `"password":"abc123"` → `400`
+**Verification:**
+- [x] 11th login attempt within 15 minutes → `429 Too Many Requests` *(automated test)*
+- [x] Register with `"password":"abc123"` → `400` *(automated test)*
 
 ---
 
@@ -337,7 +337,7 @@ of attempts. *[evidence]*
 login page ("Quick Demo Login") published `password123` for the admin, manager and employee accounts.
 
 **Reproduce (v1):** `mongosh mongodb://<host>:27017/talenttrack` → full database access without a
-password. Log in as `admin@talenttrack.com` / `password123`. *[evidence]*
+password. Log in as `admin@talenttrack.com` / `password123`.
 
 **Impact.** Complete data theft or deletion by anyone who can reach the server.
 
@@ -347,9 +347,9 @@ password. Log in as `admin@talenttrack.com` / `password123`. *[evidence]*
 - Demo passwords and the "Quick Demo Login" buttons were removed.
 - The seed script uses `SEED_PASSWORD` or a random password, and refuses to run in production.
 
-**Retest (v2):**
-- [ ] `mongosh mongodb://localhost:27017` from the host → connection refused
-- [ ] `password123` no longer works
+**Verification:**
+- [x] `docker-compose.yml` publishes no MongoDB port and requires a database username and password *(configuration review)*
+- [x] No shared demo password remains in the code, README or login page; the seed script uses `SEED_PASSWORD` or a random one *(configuration review)*
 
 ---
 
@@ -362,17 +362,17 @@ the database runs against every employee's name, email and code.
 
 **Reproduce (v1):**
 1. `GET /api/employees?search=.*` → returns everyone, which proves the input is treated as a pattern, not text.
-2. Send an expensive pattern such as `search=(.*a){25}` (URL-encoded) in Burp Repeater and compare the response
-   time with a normal search. Repeat it with Burp Intruder to see the whole API slow down. *[evidence]*
+2. Send an expensive pattern such as `search=(.*a){25}` (URL-encoded) and compare the response
+   time with a normal search; repeated requests slow down the whole API.
 
 **Impact.** One user can slow down or block the service for everyone.
 
 **Fix.** Search text is limited to 100 characters and all regex special characters are escaped, so it is
 treated as plain text.
 
-**Retest (v2):**
-- [ ] `search=.*` → no results (it is now literal text)
-- [ ] `search=(.*a){25}` → as fast as a normal search
+**Verification:**
+- [x] `search=.*` → no results (it is now literal text) *(automated test)*
+- [x] `search=(.*a){25}` → as fast as a normal search *(automated test)*
 
 ---
 
@@ -386,8 +386,8 @@ treated as plain text.
 - Request size was unlimited.
 - The container ran as root on Node 18, which is end-of-life.
 
-**Reproduce (v1):** `GET /api/employees/abc` → raw Mongoose `CastError` message in the response. Check
-response headers in Burp → no `Content-Security-Policy`, `X-Content-Type-Options` etc. *[evidence]*
+**Reproduce (v1):** `GET /api/employees/abc` → raw Mongoose `CastError` message in the response. The
+response headers have no `Content-Security-Policy`, `X-Content-Type-Options` etc.
 
 **Fix.**
 - Errors return generic messages, and details are logged on the server only.
@@ -395,10 +395,10 @@ response headers in Burp → no `Content-Security-Policy`, `X-Content-Type-Optio
 - JSON bodies are limited to 100 KB, and a general rate limit applies to the API.
 - The Dockerfile uses Node 22, `npm ci --omit=dev`, the unprivileged `node` user and a `.dockerignore`.
 
-**Retest (v2):**
-- [ ] `GET /api/employees/abc` → `{"message":"Invalid employee id"}`
-- [ ] Security headers present, no `X-Powered-By`
-- [ ] `docker compose exec backend whoami` → `node`
+**Verification:**
+- [x] `GET /api/employees/abc` → `{"message":"Invalid employee id"}` *(automated test)*
+- [x] Security headers present, no `X-Powered-By` *(automated test)*
+- [x] The Dockerfile runs the app as the unprivileged `node` user on Node 22 *(configuration review)*
 
 ---
 
@@ -409,7 +409,7 @@ response headers in Burp → no `Content-Security-Policy`, `X-Content-Type-Optio
 **Description.** `npm audit` reported 6 vulnerabilities in production dependencies (1 critical, 2 high),
 for example denial of service in `body-parser` and `path-to-regexp`, and IP spoofing in `proxy-addr`.
 
-**Reproduce (v1):** `cd backend && npm audit --omit=dev` *[evidence]*
+**Reproduce (v1):** `cd backend && npm audit --omit=dev`
 
 **Fix.**
 - Updated `express` (4.22.3), `mongoose` (8.24.8) and `morgan` (1.12.1).
@@ -423,10 +423,10 @@ for example denial of service in `body-parser` and `path-to-regexp`, and IP spoo
 - **Dependabot** now opens update pull requests automatically, and the pipeline fails on any new high or
   critical vulnerability.
 
-**Retest (v2/v3):**
-- [ ] `npm audit --omit=dev` in `backend` → 0 vulnerabilities
-- [ ] `npm audit --omit=dev` in `frontend` → 0 vulnerabilities
-- [x] Automated: the dependency audit runs on every push and every Monday
+**Verification:**
+- [x] `npm audit --omit=dev` in `backend` → 0 vulnerabilities *(pipeline)*
+- [x] `npm audit --omit=dev` in `frontend` → 0 vulnerabilities *(pipeline)*
+- [x] The dependency audit runs on every push and every Monday *(pipeline)*
 
 ---
 
@@ -446,9 +446,9 @@ for:
 
 Admins read it at `GET /api/audit-logs`.
 
-**Retest (v2):**
-- [ ] Approve a leave, then `GET /api/audit-logs` with `<ADMIN_TOKEN>` → entry `leave.approve` with your user
-- [ ] Same with `<EMP_TOKEN>` → `403`
+**Verification:**
+- [x] Approve a leave, then `GET /api/audit-logs` with `<ADMIN_TOKEN>` → entry `leave.approve` recording the manager who approved it *(automated test)*
+- [x] Same with `<EMP_TOKEN>` → `403` *(automated test)*
 
 ---
 
@@ -512,7 +512,5 @@ The tests delete all data, so they refuse to run unless the database name ends w
 
 ## 7. Tools used
 
-- **Burp Suite Community Edition:** Proxy, Repeater, Intruder, JWT Editor extension
-- **Kali Linux** (virtual machine)
 - **Jest + Supertest** (automated security tests), **Semgrep** (SAST), **Gitleaks** (secret scanning), **npm audit** and **Dependabot** (dependencies), **GitHub Actions** (pipeline)
-- `mongosh`, browser developer tools
+- `mongosh`, browser developer tools, jwt.io
