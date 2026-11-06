@@ -1,5 +1,6 @@
-# Dependabot opens pull requests when a dependency has a security fix or a new version.
-# Each pull request runs the security pipeline, so you can see if the update breaks anything.
+# Dependabot opens pull requests for security fixes and small (minor/patch) updates.
+# Major version upgrades (e.g. React 18 -> 19) are ignored, because they can break the app
+# and need planned, manual testing. Each pull request runs the security pipeline.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -7,6 +8,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       backend-minor-and-patch:
         update-types: [minor, patch]
@@ -16,6 +20,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       frontend-minor-and-patch:
         update-types: [minor, patch]
@@ -29,3 +36,6 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
