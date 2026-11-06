@@ -1,0 +1,142 @@
+# TalentTrack EMS – security pipeline
+# Runs on every push and pull request, every Monday (to catch newly published vulnerabilities),
+# and on demand from the Actions tab. Every job must pass for the commit to get a green tick.
+#
+#   1. Security tests      – 55 automated retests of the findings in SECURITY_REPORT.md (Jest + Supertest)
+#   2. Dependency audit    – known vulnerabilities in npm packages (npm audit)
+#   3. SAST                – static code analysis (Semgrep); results also shown in the Security tab
+#   4. Secret scanning     – hard-coded secrets in the code and the whole git history (Gitleaks)
+#   5. Frontend build      – the React app still compiles
+
+name: Security pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-tests:
+    name: Security tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Run security tests
+        run: npm test
+        env:
+          MONGODB_URI_TEST: mongodb://localhost:27017/talenttrack_test
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Backend – fail on high or critical vulnerabilities
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Frontend – fail on high or critical vulnerabilities in code that ships to users
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Frontend build tools – report only (never shipped to users)
+        working-directory: frontend
+        run: npm audit --audit-level=critical || echo "::warning::Build-tool (devDependency) vulnerabilities found. See the log above."
+
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write   # lets the results appear under Security > Code scanning
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v5
+      - name: Scan and save all findings
+        run: semgrep scan --config p/javascript --config p/secrets --metrics=off --sarif --output semgrep.sarif
+      - name: Upload findings to the GitHub Security tab
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+      - name: Fail on high-severity (ERROR) findings
+        run: semgrep scan --config p/javascript --config p/secrets --metrics=off --severity ERROR --error
+
+  secret-scan:
+    name: Secret scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.21.2
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history, so old commits are scanned too
+      - name: Download Gitleaks and verify its checksum
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          cd "$RUNNER_TEMP"
+          file="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$file" "$base/$file"
+          curl -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum --check -
+          tar -xzf "$file" -C "$RUNNER_TEMP" gitleaks
+          rm "$file" checksums.txt
+      - name: Scan the current files
+        run: $RUNNER_TEMP/gitleaks dir . --config .gitleaks.toml --redact --no-banner
+      - name: Scan the whole git history
+        run: $RUNNER_TEMP/gitleaks git . --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --redact --no-banner
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          CI: true

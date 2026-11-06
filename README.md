@@ -1,5 +1,7 @@
 # 🏢 TalentTrack EMS — Employee Management System
 
+[![Security pipeline](https://github.com/Poovi0807/TALENT-TRACK-EMS-EMPLOYEE-MANAGEMENT-SYSTEM/actions/workflows/security.yml/badge.svg)](https://github.com/Poovi0807/TALENT-TRACK-EMS-EMPLOYEE-MANAGEMENT-SYSTEM/actions/workflows/security.yml)
+
 A full-stack MERN (MongoDB, Express, React, Node.js) Employee Management System, security-tested and hardened.
 See **[SECURITY_REPORT.md](SECURITY_REPORT.md)** for the penetration test findings and fixes.
 
@@ -91,6 +93,38 @@ them to an employee record with the admin API below.
 
 ---
 
+## 🧪 Automated Security Tests
+
+`backend/tests/` holds **55 automated security tests** (Jest + Supertest). They repeat the retest steps
+from [SECURITY_REPORT.md](SECURITY_REPORT.md), for example "an employee cannot approve their own leave"
+or "a NoSQL-injection login is rejected".
+
+With MongoDB running:
+
+```bash
+cd backend
+npm test
+```
+
+The tests use a separate database (`talenttrack_test`) and never touch your real data. They refuse to run
+on any database whose name does not end with `_test`.
+
+## 🔁 Security Pipeline (GitHub Actions)
+
+Every push, every pull request and every Monday, `.github/workflows/security.yml` runs:
+
+| Check | Tool |
+|---|---|
+| Security tests | Jest + Supertest against a real MongoDB |
+| Dependency audit | `npm audit` (fails on high/critical issues in shipped code) |
+| Static code analysis (SAST) | Semgrep; findings appear under **Security → Code scanning** |
+| Secret scanning | Gitleaks, with a custom rule for this app's secrets, over all files and the full git history |
+| Frontend build | the React app must compile |
+
+**Dependabot** (`.github/dependabot.yml`) opens pull requests for security updates automatically.
+
+---
+
 ## 🐳 Docker (Optional)
 
 ```bash
@@ -120,8 +154,10 @@ Then run the frontend separately with `npm start`.
 │   ├── routes/         → Express route definitions
 │   ├── scripts/        → Seed script
 │   ├── utils/          → Token generator, input security helpers, audit logging
+│   ├── tests/          → 55 automated security tests (Jest + Supertest)
 │   ├── .env.example    → Environment variable template
-│   └── server.js       → App entry point (security headers, rate limiting, input sanitising)
+│   ├── app.js          → Express app (security headers, rate limiting, input sanitising)
+│   └── server.js       → Starts the app and connects to MongoDB
 │
 ├── frontend/
 │   └── src/
@@ -131,6 +167,8 @@ Then run the frontend separately with `npm start`.
 │       ├── services/   → api.js (all Axios API calls)
 │       └── App.js      → Router & layout
 │
+├── .github/           → Security pipeline (GitHub Actions) and Dependabot
+├── .gitleaks.toml     → Secret-scanning rules
 ├── docker-compose.yml  → MongoDB (with authentication) + backend
 ├── .env.example        → Template for Docker secrets
 └── SECURITY_REPORT.md  → Penetration test report
@@ -173,3 +211,4 @@ Then run the frontend separately with `npm start`.
 - **JWT Authentication** — Short-lived tokens, rate-limited login, strong password rules
 - **Audit Log** — Records who approved, edited, deleted or changed access, and when
 - **Hardened API** — Security headers, NoSQL-injection protection, input validation, safe error messages
+- **Automated Security Testing** — 55 tests plus SAST, secret and dependency scanning on every push

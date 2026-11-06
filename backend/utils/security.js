@@ -22,6 +22,9 @@ const sanitizeRequest = (req, res, next) => {
   if (req.query) {
     const cleaned = stripOperators(req.query);
     for (const key of Object.keys(req.query)) delete req.query[key];
+    // Reviewed SAST finding (Semgrep express-data-exfiltration): safe, because this only writes back
+    // the cleaned copy of the request's own query, with all MongoDB operators removed.
+    // nosemgrep
     Object.assign(req.query, cleaned);
   }
   next();
@@ -60,7 +63,7 @@ const handleError = (res, error, context) => {
   if (error && error.code === 11000) {
     return res.status(409).json({ message: 'A record with these details already exists' });
   }
-  console.error(`[${context}]`, error);
+  console.error('[%s]', context, error);
   return res.status(500).json({ message: 'Something went wrong. Please try again.' });
 };
 

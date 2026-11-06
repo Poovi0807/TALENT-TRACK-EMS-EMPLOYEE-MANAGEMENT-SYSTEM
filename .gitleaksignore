@@ -1,0 +1,5 @@
+# Known historical leak (finding F-02 in SECURITY_REPORT.md).
+# The JWT secret committed in a1a1098 was removed from the code and must never be used again.
+# These two entries stop the old commit from failing every scan; any NEW leak still fails.
+a1a109848e14e7ad0a5c772519c360743bb28cc4:README.md:talenttrack-app-secret:109
+a1a109848e14e7ad0a5c772519c360743bb28cc4:docker-compose.yml:talenttrack-app-secret:18

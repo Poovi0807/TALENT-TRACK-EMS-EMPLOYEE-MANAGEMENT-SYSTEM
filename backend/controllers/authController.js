@@ -115,8 +115,9 @@ exports.updateUserAccess = async (req, res) => {
     }
     if (Object.keys(update).length === 0) return res.status(400).json({ message: 'Nothing to update' });
 
-    const user = await User.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    const result = await User.updateOne({ _id: req.params.id }, update, { runValidators: true });
+    if (result.matchedCount === 0) return res.status(404).json({ message: 'User not found' });
+    const user = await User.findById(req.params.id);
 
     await audit(req, 'user.updateAccess', 'User', user._id, update);
     res.json(userResponse(user));

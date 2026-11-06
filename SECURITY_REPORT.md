@@ -5,9 +5,9 @@
 | **Tester** | Panchami Bandihalli Varadaraju |
 | **Application** | TalentTrack EMS (Node.js/Express API, MongoDB, React front end) |
 | **Scope** | All `/api/*` endpoints, the React front end, Docker configuration, dependencies |
-| **Method** | Source code review + manual penetration testing with Burp Suite on Kali Linux |
+| **Method** | Source code review, manual penetration testing with Burp Suite on Kali Linux, automated security tests, SAST (Semgrep), secret scanning (Gitleaks), dependency scanning (npm audit) |
 | **Version tested** | `v1-vulnerable` (commit `a1a1098`) |
-| **Version fixed** | `v2-secured` |
+| **Version fixed** | `v2-secured`; automated testing and CI pipeline added in `v3-automated` |
 | **Test accounts** | One admin, one manager, one employee (from the seed script) |
 
 > **How to use this report:** each finding has steps to reproduce on `v1-vulnerable` and a retest
@@ -24,8 +24,9 @@ an admin login** using a secret published on GitHub (F-02), and let **employees 
 (F-03). Most issues come from one root cause: the server **trusted values sent by the browser**
 (role, employee ID, status, approver) instead of taking them from the logged-in user.
 
-All findings were fixed in `v2-secured`. The fixes were checked with automated attack checks against
-the code; the retest checklist below repeats them as real requests through Burp Suite.
+All findings were fixed in `v2-secured`. In `v3-automated`, **55 automated security tests** now repeat
+the retests on every change, and a **GitHub Actions pipeline** also runs dependency, code (SAST) and secret
+scans, so a fixed vulnerability cannot quietly come back (section 4).
 
 ## 2. Findings overview
 
@@ -91,7 +92,7 @@ change roles with the new admin-only `PUT /api/auth/users/:id`, which cannot be 
 
 **Where:** `docker-compose.yml`, `README.md`
 
-**Description.** The secret that signs every login token (`talenttrack_super_secret_jwt_key_2024`) was
+**Description.** The secret that signs every login token (`talenttrack_super_secret_…`, redacted here) was
 committed to a public repository. Anyone who knows it can create a valid token for any user.
 
 **Reproduce (v1):** In Burp's JWT Editor (or jwt.io), take any token, change the `id` in the payload to
@@ -103,11 +104,16 @@ the admin user's ID and re-sign it with the published secret. Call `GET /api/aut
 - Secrets removed from `docker-compose.yml` and the README; they now come from a `.env` file that git ignores (`.env.example` is the template).
 - The server refuses to start if `JWT_SECRET` is missing or shorter than 32 characters.
 - **Action required:** the old secret remains in git history forever, so it must never be used again. Generate a new random secret.
+- **Detection gap found:** Gitleaks' default rules did **not** detect this secret, because it is made of
+  readable words rather than random characters. A custom rule in `.gitleaks.toml` now flags any real value
+  next to `JWT_SECRET`, `MONGO_ROOT_PASSWORD` or `SEED_PASSWORD`. It finds the old leak in commit `a1a1098`,
+  which is recorded in `.gitleaksignore` as known and rotated; any new leak fails the pipeline.
 
 **Retest (v2):**
 - [ ] A token signed with the old secret → `401`
 - [ ] Starting the server with `JWT_SECRET=short` → server stops with an error
 - [ ] `git grep -i "secret" -- '*.yml' '*.md'` finds no real secret
+- [x] Automated: Gitleaks scans all files and the full history on every push
 
 ---
 
@@ -409,9 +415,18 @@ for example denial of service in `body-parser` and `path-to-regexp`, and IP spoo
 - Updated `express` (4.22.3), `mongoose` (8.24.8) and `morgan` (1.12.1).
 - Pinned a patched `qs`, and updated `nodemon`.
 - `npm audit --omit=dev` now reports **0 vulnerabilities**. The frontend's out-of-sync `package-lock.json` was repaired.
+- **Front end (v3):** `npm audit` reported 63 vulnerabilities, but almost all were in build tools wrongly listed
+  as runtime dependencies. After moving `react-scripts` and the testing libraries to `devDependencies`, 6 real
+  runtime issues remained: `axios` (high; many advisories, including SSRF, denial of service and prototype
+  pollution) and `react-router` (moderate; open redirect). `axios` was updated to 1.21 and `react-router-dom` to 7.18, so code that ships to users now has
+  **0 known vulnerabilities**.
+- **Dependabot** now opens update pull requests automatically, and the pipeline fails on any new high or
+  critical vulnerability.
 
-**Retest (v2):**
+**Retest (v2/v3):**
 - [ ] `npm audit --omit=dev` in `backend` → 0 vulnerabilities
+- [ ] `npm audit --omit=dev` in `frontend` → 0 vulnerabilities
+- [x] Automated: the dependency audit runs on every push and every Monday
 
 ---
 
@@ -437,24 +452,67 @@ Admins read it at `GET /api/audit-logs`.
 
 ---
 
-## 4. Other fixes
+## 4. Automated security testing and pipeline (v3)
+
+### Security tests
+
+`backend/tests/` contains **55 automated tests** (Jest + Supertest) that send real HTTP requests to the API
+and repeat the retest steps from section 3. Run them with `npm test` in the `backend` folder.
+
+| Test file | Findings covered | Tests |
+|---|---|---|
+| `auth.test.js` | F-01, F-02, F-07 (login), F-09, F-10 | 16 |
+| `accessControl.test.js` | F-04, F-05, F-06 | 14 |
+| `leaveWorkflow.test.js` | F-03, F-08, F-15 | 12 |
+| `injectionAndHardening.test.js` | F-07 (filters), F-12, F-13, employee-code bug | 12 |
+| `rateLimit.test.js` | F-10 (brute force) | 1 |
+
+**Do the tests really catch the bugs?** As a check, the F-01 and F-04 vulnerabilities were put back into a copy
+of the code. **8 tests failed**, so either bug would be caught if it ever returned.
+
+The tests delete all data, so they refuse to run unless the database name ends with `_test`.
+
+### GitHub Actions pipeline
+
+`.github/workflows/security.yml` runs on every push, every pull request, and every Monday:
+
+| Job | Tool | Fails when |
+|---|---|---|
+| Security tests | Jest + Supertest, real MongoDB 7 | any of the 55 tests fails |
+| Dependency audit | `npm audit` | a high or critical vulnerability is in code that ships (backend or frontend) |
+| SAST | Semgrep (`p/javascript`, `p/secrets`) | a high-severity (ERROR) finding appears; all findings are listed under **Security → Code scanning** |
+| Secret scanning | Gitleaks with a custom rule; download verified by checksum | a secret is found in the files or anywhere in the git history |
+| Frontend build | `react-scripts build` | the React app does not compile |
+
+### SAST triage (Semgrep)
+
+| Finding | Severity | Decision |
+|---|---|---|
+| `detect-non-literal-regexp` in employee search | Warning | **False positive.** Input is limited to 100 characters and fully escaped (F-12). Marked `nosemgrep` with the reason in the code. |
+| `express-data-exfiltration` in input sanitiser | Warning | **False positive.** Only writes back the request's own cleaned query. Marked `nosemgrep` with the reason. |
+| `unsafe-formatstring` in error logging | Info | **Fixed:** changed to a fixed format string. |
+| `javascript-alert` / `javascript-prompt` in two pages | Warning | Accepted for now (code quality, not security). Replace browser pop-ups with in-page dialogs later. |
+| `express-check-csurf-middleware-usage` | Info | Not applicable: logins use an `Authorization` header, not cookies, so CSRF does not apply. Needed if tokens move to cookies. |
+
+## 5. Other fixes
 
 - **Employee code bug:** codes were "count + 1", so after deleting an employee the next code already
   existed and creating employees failed. Codes now continue from the highest existing code.
 - **Seed script:** sets employee codes explicitly, because `insertMany` skips the save hook.
 
-## 5. Remaining risks and recommendations
+## 6. Remaining risks and recommendations
 
 | Risk | Recommendation |
 |---|---|
 | Login token is stored in `localStorage`, so it could be read if an XSS bug is ever introduced | React escapes output by default and no `dangerouslySetInnerHTML` is used. Next step: move to an `httpOnly` cookie with CSRF protection. |
-| Front end uses Create React App (`react-scripts`), which is no longer maintained and has dev-tool vulnerabilities | Migrate the front end to Vite. These packages are only used for building, not in the running app. |
+| Front end uses Create React App (`react-scripts`), which is no longer maintained; its build tools have known vulnerabilities | Migrate the front end to Vite. These packages are only used for building, never shipped to users, and the pipeline reports them as warnings. |
 | `nodemon` (development only) still has dev-dependency audit findings | Not shipped in the Docker image (`--omit=dev`); update when a fixed version is released. |
 | No account lockout or MFA | Add MFA for admin accounts and lockout after repeated failures. |
-| No automated security tests in CI | Add Jest + Supertest tests for each retest step and run them with `npm audit` in GitHub Actions. |
+| No dynamic scan of the running app (DAST) | Add an OWASP ZAP baseline scan to the pipeline. |
 
-## 6. Tools used
+## 7. Tools used
 
 - **Burp Suite Community Edition:** Proxy, Repeater, Intruder, JWT Editor extension
 - **Kali Linux** (virtual machine)
-- `mongosh`, `npm audit`, browser developer tools
+- **Jest + Supertest** (automated security tests), **Semgrep** (SAST), **Gitleaks** (secret scanning), **npm audit** and **Dependabot** (dependencies), **GitHub Actions** (pipeline)
+- `mongosh`, browser developer tools

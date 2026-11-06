@@ -1,0 +1,28 @@
+# Gitleaks configuration for TalentTrack EMS
+# Uses all default Gitleaks rules plus one custom rule.
+# Why the custom rule: the default rules look for random-looking keys and did NOT detect the
+# human-readable JWT secret that was committed in v1 (finding F-02). This rule flags any real
+# value written next to one of this app's secret settings.
+
+title = "TalentTrack EMS secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "talenttrack-app-secret"
+description = "Hard-coded value for a TalentTrack secret setting (JWT secret, database or seed password)"
+regex = '''(?i)\b(JWT_SECRET|MONGO_ROOT_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|SEED_PASSWORD)\b[ \t]*[=:][ \t]*["']?([^\s"'`$#{}]{8,})'''
+secretGroup = 2
+keywords = ["jwt_secret", "mongo_root_password", "mongo_initdb_root_password", "seed_password"]
+
+[allowlist]
+description = "Known non-secret placeholders and test-only values"
+regexes = [
+  '''^ChangeMeToALongRandomPassword123$''',          # placeholder in .env.example
+  '''^test-only-secret-not-used-anywhere-else''',    # value used only by the automated tests
+]
+paths = [
+  '''(^|/)node_modules/''',
+  '''package-lock\.json$''',
+]

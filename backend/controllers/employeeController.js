@@ -49,6 +49,9 @@ exports.getEmployees = async (req, res) => {
     if (department && DEPARTMENTS.includes(department)) query.department = department;
     if (status && STATUSES.includes(status)) query.status = status;
     if (search) {
+      // Reviewed SAST finding (Semgrep detect-non-literal-regexp): safe, because the input is limited
+      // to 100 characters and every regex special character is escaped, so it can only match literal text.
+      // nosemgrep
       const pattern = new RegExp(escapeRegex(search), 'i');
       query.$or = [{ firstName: pattern }, { lastName: pattern }, { email: pattern }, { employeeCode: pattern }];
     }
