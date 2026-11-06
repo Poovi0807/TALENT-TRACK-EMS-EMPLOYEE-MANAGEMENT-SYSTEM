@@ -17,13 +17,20 @@ const connect = async (suffix) => {
   // Each test file gets its own database, e.g. talenttrack_test_access
   const url = new URL(base);
   url.pathname = `/${dbName}_${suffix}`;
-  await mongoose.connect(url.toString());
+  try {
+    await mongoose.connect(url.toString(), { serverSelectionTimeoutMS: 5000 });
+  } catch (error) {
+    throw new Error(
+      `Cannot reach MongoDB at ${url.host}. Is MongoDB running? `
+      + 'On Windows: open PowerShell as administrator and run "Start-Service MongoDB".',
+    );
+  }
   await mongoose.connection.dropDatabase();
   await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
 };
 
 const disconnect = async () => {
-  await mongoose.connection.dropDatabase();
+  if (mongoose.connection.readyState === 1) await mongoose.connection.dropDatabase();
   await mongoose.disconnect();
 };
 
